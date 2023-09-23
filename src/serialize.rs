@@ -1,7 +1,6 @@
 #[allow(dead_code)]
 pub mod resp {
     use regex::Regex;
-    use tokio::net::windows::named_pipe::ServerOptions;
     use std::collections::VecDeque;
 
     #[derive(Debug, PartialEq, Eq)]
@@ -75,7 +74,7 @@ pub mod resp {
     fn entry_splitter(entry: &str) -> (RespIdentifier, String, bool) {
         let mut split: Vec<&str> = entry.split("").filter(|x| !x.is_empty()).collect();
         if split.len() < 2 {
-            
+            return (RespIdentifier::RespSimpleErr, String::from("No message / length to be parsed"), true)
         }
 
         let identifier = detect_identifier(split.remove(0));
