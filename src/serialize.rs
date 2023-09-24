@@ -74,7 +74,11 @@ pub mod resp {
     fn entry_splitter(entry: &str) -> (RespIdentifier, String, bool) {
         let mut split: Vec<&str> = entry.split("").filter(|x| !x.is_empty()).collect();
         if split.len() < 2 {
-            return (RespIdentifier::RespSimpleErr, String::from("No message / length to be parsed"), true)
+            return (
+                RespIdentifier::RespSimpleErr,
+                String::from("No message / length to be parsed"),
+                true,
+            );
         }
 
         let identifier = detect_identifier(split.remove(0));
@@ -82,31 +86,20 @@ pub mod resp {
         let message = split.concat();
 
         match identifier {
-            RespIdentifier::RespInt => (identifier, message, true),
-            RespIdentifier::RespBigNumber => (identifier, message, true),
-            RespIdentifier::RespBool => (identifier, message, true),
-            RespIdentifier::RespSimpleStr => (identifier, message, true),
+            RespIdentifier::RespBulkStr => (RespIdentifier::RespBulkStr, message, false),
             _ => (identifier, message, true),
         }
-
-
-
-
     }
     // receives m
     pub fn serialize_array(message: &str, length: &str) -> Vec<SerializedMessage> {
-        let arr_length: usize;
         // TODO: NULL ARRAY
 
-        match length.parse::<usize>() {
-            Ok(n) => arr_length = n,
+        let arr_length = match length.parse::<usize>() {
+            Ok(n) => n,
             Err(e) => return vec![ret_err_message("Array length not parsed correctly!")],
-        }
-
+        };
 
         let mut split: VecDeque<&str> = message.split("\r\n").filter(|x| !x.is_empty()).collect();
-        
-
 
         let mut serialized_array = Vec::new();
         // "*2\r\n$4\r\necho\r\n$5\r\nhello world\r\n”
@@ -114,35 +107,56 @@ pub mod resp {
         // *3\r\n:1\r\n:2\r\n:3\r\n
         // :1 , :2 , :3
         while !split.is_empty() {
-            let (id , length_or_entry, encapsulates) = entry_splitter(split.pop_front().unwrap());
-            let serialized_message: SerializedMessage;
-            if encapsulates {
-                serialized_message = SerializedMessage {
-                    identifier : id,
-                    message : length_or_entry,
-                    length : length_or_entry.len()
-                };
-                serialized_array.push(serialized_message);
+            /*
+            if the chunk identifier is not a bulk string,
+            split the identifier from the data, and return a SerializedMessage with the data attached
+
+            if the chunk identifier is a bulk string,
+                seperate the identifier from the informing length
+                check that the informing length is == actual length of the string
+                pop the next message as the data for this and to attach to the SerializedMessage
+                if the informed length of the string is != actual length of the string
+                return an error SerializedMessage instead
+            */
+
+            let (id, data, encapsulated) = entry_splitter(split.pop_front().unwrap());
+            if encapsulated {
+                serialized_array.push(SerializedMessage {
+                    length: data.len(),
+                    identifier: id,
+                    message: data,
+                });
                 continue;
             }
-            if let Ok(entry_length) = length_or_entry.parse::<usize>() {
-                let entry_message = split.pop_front().unwrap();
-                serialized_message = SerializedMessage {
-                    identifier : id,
-                    length : entry_length,
-                    message: split.pop_front().unwrap().to_string()
-                };
-                serialized_array.push(serialized_message);
+            // if this is a bulk string
+            let payload = match split.pop_front() {
+                Some(n) => n,
+                None => {
+                    serialized_array.push(ret_err_message("No payload string found!"));
+                    continue;
+                }
+            };
+            // parse the length from data
+            let payload_length = match data.parse::<usize>() {
+                Ok(n) => n,
+                Err(e) => {
+                    serialized_array.push(ret_err_message("payload length could not be parsed!"));
+                    continue;
+                }
+            };
+
+            if payload_length != data.len() {
+                serialized_array.push(ret_err_message(
+                    "Informing length does not equal payload length!",
+                ));
                 continue;
-
             }
-            else{
-                // if the parse isn't sucessful, discard the next 
-                split.pop_front();
-                serialized_array.push(ret_err_message("Error parsing length"))
-            }
-            
 
+            serialized_array.push(SerializedMessage {
+                length: payload_length,
+                identifier: id,
+                message: payload.to_string(),
+            });
         }
 
         return serialized_array;
