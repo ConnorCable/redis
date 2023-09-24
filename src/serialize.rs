@@ -3,7 +3,7 @@ pub mod resp {
     use regex::Regex;
     use std::collections::VecDeque;
 
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     pub enum RespIdentifier {
         RespSimpleStr,
         RespSimpleErr,
@@ -84,6 +84,7 @@ pub mod resp {
         let identifier = detect_identifier(split.remove(0));
 
         let message = split.concat();
+      //  println!("message: {}", message);
 
         match identifier {
             RespIdentifier::RespBulkStr => (RespIdentifier::RespBulkStr, message, false),
@@ -93,7 +94,6 @@ pub mod resp {
     // receives m
     pub fn serialize_array(message: &str) -> Vec<SerializedMessage> {
         // TODO: NULL ARRAY
-
 
         let mut split: VecDeque<&str> = message.split("\r\n").filter(|x| !x.is_empty()).collect();
 
@@ -132,6 +132,7 @@ pub mod resp {
                     continue;
                 }
             };
+          //  println!("Payload: {}", payload);
             // parse the length from data
             let payload_length = match data.parse::<usize>() {
                 Ok(n) => n,
@@ -141,7 +142,11 @@ pub mod resp {
                 }
             };
 
-            if payload_length != data.len() {
+          //  println!("Payload length: {}", payload_length);
+          //  println!("Data: {}", data);
+          //  println!("Data length: {}", data.len());
+
+            if payload_length !=  payload.len() {
                 serialized_array.push(ret_err_message(
                     "Informing length does not equal payload length!",
                 ));
@@ -177,7 +182,7 @@ pub mod resp {
             RespIdentifier::RespBool
             | RespIdentifier::RespSimpleStr
             | RespIdentifier::RespSimpleErr => {
-                container.update(serialize_simple(&message[1..], identifier))
+                container.update(serialize_simple(&message, identifier))
             }
             _ => container.update(ret_err_message("Identifier not parsed")),
         };
@@ -204,12 +209,10 @@ pub mod resp {
             return SerializedMessage {
                 length: captured.len(),
                 message: captured.to_string(),
-                identifier: id
+                identifier: id,
             };
-            
-        }
-        else{
-            return ret_err_message("No message could be captured!")
+        } else {
+            return ret_err_message("No message could be captured!");
         }
     }
 }

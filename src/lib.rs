@@ -5,13 +5,32 @@ mod serialize;
 
 #[cfg(test)]
 mod serialize_tests {
-    use crate::serialize::resp::{SerializedMessage, RespIdentifier, construct_serialized_message, SerializedContainer, serialize_array};
+    use crate::serialize::resp::{SerializedMessage, RespIdentifier, construct_serialized_message, SerializedContainer};
 
     fn construct_and_fill_test_container(input : String, id : RespIdentifier) -> SerializedContainer {
         let serialized = SerializedMessage { length: 1, identifier: id, message: input };
         let container = SerializedContainer {
             length: 1,
             messages: vec![serialized]
+        };
+
+        return container;
+    }
+
+    fn construct_and_fill_test_container_with_array(input : Vec<String>, id_vector : Vec<RespIdentifier>) -> SerializedContainer {
+        let mut serialized_vectors: Vec<SerializedMessage> = Vec::new();
+
+        
+
+        for i in 0..input.len() {
+            let data = input[i].clone();
+            let serialized = SerializedMessage { length: data.len(), identifier: id_vector[i], message: data };
+            serialized_vectors.push(serialized);
+        }
+
+        let container = SerializedContainer{
+            length: input.len() as u32,
+            messages: serialized_vectors
         };
 
         return container;
@@ -71,9 +90,18 @@ mod serialize_tests {
     }
     #[test]
     fn test_resp_array() {
-        let message = "\r\n$4\r\necho\r\n$5\r\nhello world\r\n";
+        let message = "*2\r\n$4\r\necho\r\n$11\r\nhello world\r\n";
+        let message_vector = vec![String::from("echo"), String::from("hello world")];
+        let identifier_vector = vec![RespIdentifier::RespBulkStr, RespIdentifier::RespBulkStr];
 
-       serialize_array(message, 2);
+        let serialized: SerializedContainer = construct_serialized_message(message);
+        let test_container = construct_and_fill_test_container_with_array( message_vector, identifier_vector );
+
+        for i in 0..serialized.messages.len() {
+            assert_eq!(serialized.messages[i].message, test_container.messages[i].message, "Compare messages in test container vs functionally created container");
+            assert_eq!(serialized.messages[i].identifier, test_container.messages[i].identifier, "Compare identifiers in test");
+        }
+
 
 
     }
