@@ -31,16 +31,16 @@ pub mod resp {
     }
 
     trait UpdateLength {
-        fn update(&self, entry: SerializedMessage);
-        fn update_with_array(&self, entries: Vec<SerializedMessage>);
+        fn update(&mut self, entry: SerializedMessage);
+        fn update_with_array(&mut self, entries: Vec<SerializedMessage>);
     }
 
     impl UpdateLength for SerializedContainer {
-        fn update(&self, entry: SerializedMessage) {
+        fn update(&mut self, entry: SerializedMessage) {
             self.messages.push(entry);
             self.length += 1;
         }
-        fn update_with_array(&self, entries: Vec<SerializedMessage>) {
+        fn update_with_array(&mut self, entries: Vec<SerializedMessage>) {
             for entry in entries {
                 self.length += 1;
                 self.messages.push(entry)
@@ -91,13 +91,9 @@ pub mod resp {
         }
     }
     // receives m
-    pub fn serialize_array(message: &str, length: &str) -> Vec<SerializedMessage> {
+    pub fn serialize_array(message: &str) -> Vec<SerializedMessage> {
         // TODO: NULL ARRAY
 
-        let arr_length = match length.parse::<usize>() {
-            Ok(n) => n,
-            Err(e) => return vec![ret_err_message("Array length not parsed correctly!")],
-        };
 
         let mut split: VecDeque<&str> = message.split("\r\n").filter(|x| !x.is_empty()).collect();
 
@@ -139,7 +135,7 @@ pub mod resp {
             // parse the length from data
             let payload_length = match data.parse::<usize>() {
                 Ok(n) => n,
-                Err(e) => {
+                Err(_) => {
                     serialized_array.push(ret_err_message("payload length could not be parsed!"));
                     continue;
                 }
@@ -172,11 +168,11 @@ pub mod resp {
         let identifier = detect_identifier(&message[0..1]);
         match identifier {
             RespIdentifier::RespArray => {
-                container.update_with_array(serialize_array(&message[2..], &message[1..1]))
+                container.update_with_array(serialize_array(&message[2..]))
             }
             RespIdentifier::RespBulkStr => container.update(serialize_bulk_string(message)),
             RespIdentifier::RespInt | RespIdentifier::RespBigNumber => {
-                container.update(serialize_int(message))
+                container.update(serialize_simple(message, identifier))
             }
             RespIdentifier::RespBool
             | RespIdentifier::RespSimpleStr
@@ -197,14 +193,23 @@ pub mod resp {
             "#" => RespIdentifier::RespBool,
             "*" => RespIdentifier::RespArray,
             "$" => RespIdentifier::RespBulkStr,
-            "-" => RespIdentifier::RespSimpleErr,
             _ => RespIdentifier::RespSimpleErr,
         }
     }
     // captures the human readable string of the split message
-    pub fn serialize_simple(message: &str, identifer: RespIdentifier) -> SerializedMessage {
+    pub fn serialize_simple(message: &str, id: RespIdentifier) -> SerializedMessage {
         let capture_group = Regex::new(r".(.+)\r\n").unwrap();
-        let captures = capture_group.captures(message);
+        if let Some(captures) = capture_group.captures(message) {
+            let captured = captures.get(1).unwrap().as_str();
+            return SerializedMessage {
+                length: captured.len(),
+                message: captured.to_string(),
+                identifier: id
+            };
+            
+        }
+        else{
+            return ret_err_message("No message could be captured!")
+        }
     }
-    pub fn serialize_int(message: &str) -> SerializedMessage {}
 }
