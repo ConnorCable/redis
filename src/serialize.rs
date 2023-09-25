@@ -23,7 +23,7 @@ pub mod resp {
         pub length: u32,
         pub messages: Vec<SerializedMessage>,
     }
-
+    #[derive(Debug)]
     pub struct SerializedMessage {
         pub length: usize,
         pub identifier: RespIdentifier,
@@ -59,10 +59,31 @@ pub mod resp {
     }
     // receives
     fn serialize_bulk_string(content: &str) -> SerializedMessage {
+        let split: Vec<&str> = content.split("\r\n").collect();
+        println!("split: {:?}", split);
+
+        if split[0].chars().nth(1).unwrap() == '-' {
+            return serialize_null_message();
+        }
+
+        let informed_length = match split[0].chars().nth(1) {
+            Some(c) => c.to_digit(10).unwrap(),
+            None => return ret_err_message("Informed length cannot be parsed"),
+        };
+        if informed_length == 0 && split[1] != "" {
+            return ret_err_message("Empty bulk string contains non-empty bulk string");
+        }
+
+        if informed_length != split[1].len() as u32 {
+            return ret_err_message("Bulk string length mismatch");
+        }
+
+
+
         return SerializedMessage {
-            length: (content.len() - 2),
+            length: split[1].len(),
             identifier: RespIdentifier::RespBulkStr,
-            message: content[2..].to_string(),
+            message: split[1].to_string(),
         };
     }
 
@@ -84,29 +105,38 @@ pub mod resp {
         let identifier = detect_identifier(split.remove(0));
 
         let message = split.concat();
-      //  println!("message: {}", message);
+        //  println!("message: {}", message);
 
         match identifier {
             RespIdentifier::RespBulkStr => (RespIdentifier::RespBulkStr, message, false),
             _ => (identifier, message, true),
         }
     }
-    // receives m
-    pub fn serialize_array(message: &str) -> Vec<SerializedMessage> {
+
+    fn serialize_null_message() -> SerializedMessage {
+        return SerializedMessage {
+            length: 0,
+            identifier: RespIdentifier::RespNull,
+            message: String::new(),
+        };
+    }
+
+    pub fn serialize_array(message: &str, len: &str) -> Vec<SerializedMessage> {
+        let length = match len.parse::<u32>() {
+            Ok(x) => x,
+            Err(e) => {
+                return vec![ret_err_message(e.to_string().as_str())];
+            }
+        };
         // TODO: NULL ARRAY
 
         let mut split: VecDeque<&str> = message.split("\r\n").filter(|x| !x.is_empty()).collect();
 
         let mut serialized_array = Vec::new();
-        // "*2\r\n$4\r\necho\r\n$5\r\nhello world\r\n”
-        // $4 , echo , $5 , hello world
-        // *3\r\n:1\r\n:2\r\n:3\r\n
-        // :1 , :2 , :3
         while !split.is_empty() {
             /*
             if the chunk identifier is not a bulk string,
             split the identifier from the data, and return a SerializedMessage with the data attached
-
             if the chunk identifier is a bulk string,
                 seperate the identifier from the informing length
                 check that the informing length is == actual length of the string
@@ -132,7 +162,7 @@ pub mod resp {
                     continue;
                 }
             };
-          //  println!("Payload: {}", payload);
+
             // parse the length from data
             let payload_length = match data.parse::<usize>() {
                 Ok(n) => n,
@@ -142,11 +172,11 @@ pub mod resp {
                 }
             };
 
-          //  println!("Payload length: {}", payload_length);
-          //  println!("Data: {}", data);
-          //  println!("Data length: {}", data.len());
+            //  println!("Payload length: {}", payload_length);
+            //  println!("Data: {}", data);
+            //  println!("Data length: {}", data.len());
 
-            if payload_length !=  payload.len() {
+            if payload_length != payload.len() {
                 serialized_array.push(ret_err_message(
                     "Informing length does not equal payload length!",
                 ));
@@ -158,6 +188,14 @@ pub mod resp {
                 identifier: id,
                 message: payload.to_string(),
             });
+        }
+        if length != serialized_array.len() as u32 {
+            println!("length: {}", length);
+            println!("serialized array length: {}", serialized_array.len());
+            println!("serialized array {:?}", serialized_array);
+            return vec![ret_err_message(
+                "Array length does not match informing length!",
+            )];
         }
 
         return serialized_array;
@@ -171,9 +209,11 @@ pub mod resp {
             messages: Vec::new(),
         };
         let identifier = detect_identifier(&message[0..1]);
+
+
         match identifier {
             RespIdentifier::RespArray => {
-                container.update_with_array(serialize_array(&message[2..]))
+                container.update_with_array(serialize_array(&message[2..], &message[1..2]));
             }
             RespIdentifier::RespBulkStr => container.update(serialize_bulk_string(message)),
             RespIdentifier::RespInt | RespIdentifier::RespBigNumber => {
